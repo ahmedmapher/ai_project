@@ -1,157 +1,135 @@
-#importing libraries
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import os
 import seaborn as sns
-import warnings
+import os
 
-# importing relavant packages and classifiers from sklearn library
-from sklearn.preprocessing import StandardScaler # for scaling
-from sklearn.model_selection import train_test_split # for data splitting
+from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import train_test_split
 
 from sklearn.ensemble import RandomForestClassifier
 from lightgbm import LGBMClassifier
 
-from sklearn.metrics import classification_report, confusion_matrix, roc_curve, roc_auc_score, accuracy_score
-from sklearn.metrics import precision_recall_fscore_support
-from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
+from sklearn.metrics import (
+    classification_report,
+    confusion_matrix,
+    roc_auc_score,
+    accuracy_score,
+    precision_score,
+    recall_score,
+    f1_score
+)
 
-#load database
-df = pd.read_csv("train.csv")
-df.head()
+try:
+    df = pd.read_csv("train.csv")
+except FileNotFoundError:
+    print("Error: train.csv not found. Please ensure the file is in the correct directory.")
+    exit()
 
-#read columns
-df.columns
+print("--- First 5 rows of the dataset ---")
+print(df.head())
+print("\n--- Column names ---")
+print(df.columns)
+print(f"\n--- Size of dataset (rows, columns) ---: {df.shape}")
+print(f"Number of records: {len(df)}")
 
-# size of dataset
-len(df)
-
-# size of dataset
-len(df)
-
-# Calculate class counts and percentages
 sns.set_style("darkgrid")
 class_counts = df['ACTION'].value_counts()
 total_samples = len(df)
-percentage_labels = [(count / total_samples) * 100 for count in class_counts]
 
-# Create a bar chart to visualize the class distribution
 plt.figure(figsize=(8, 6))
-ax = class_counts.plot(kind='bar')
-plt.title('Access Control Distribution', fontweight='bold', fontsize=14)
+ax = class_counts.plot(kind='bar', color=['skyblue', 'salmon'])
+plt.title('Access Control Distribution', fontweight='bold', fontsize=15)
 plt.xlabel('Employee Actions', fontweight='bold', fontsize=14)
 plt.ylabel('Number of Employee Records', fontweight='bold', fontsize=14)
 plt.xticks(rotation=0, fontsize=12, fontweight='bold')
 plt.yticks(fontsize=12, fontweight='bold')
 
-# Add percentage labels on top of the bars (make them bold)
 for i, count in enumerate(class_counts):
-    ax.text(i, count, f'{percentage_labels[i]:.2f}%', ha='center', va='bottom', fontsize=12, fontweight='bold')
-
+    percentage = (count / total_samples) * 100
+    ax.text(i, count + (total_samples * 0.01), f'{percentage:.2f}%', 
+            ha='center', va='bottom', fontsize=12, fontweight='bold')
+plt.ylim(0, class_counts.max() * 1.15) 
+plt.tight_layout()
 plt.show()
 
-# Separating the target label from the features
-y = df["ACTION"] # labels
-X = df.drop("ACTION", axis=1)  # training features
+y = df["ACTION"]
+X = df.drop("ACTION", axis=1)
 
-# Split the data into training and testing sets
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2)
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
 
-
-#Scaling Dataset
 scaler = StandardScaler()
-
-# Fit and transform the scaler on the training set
 X_train_scaled = scaler.fit_transform(X_train)
-
-# Transform the testing set using the same scaler
 X_test_scaled = scaler.transform(X_test)
 
-#convert y_train to numpy array
-y_train = np.array(y_train)
+def evaluate_model(model, X_train_data, X_test_data, y_train_data, y_test_data, model_name="Model"):
 
-# building a general function for training the model
-def model_train(model, X_train, X_test, y_train, y_test):
-    model.fit(X_train, y_train)
-    y_pred_tr = model.predict(X_train)
-    y_pred = model.predict(X_test)
+    print(f"\n--- Evaluating: {model_name} ---")
+
+    model.fit(X_train_data, y_train_data)
+
+    y_pred = model.predict(X_test_data)
+    y_pred_proba = model.predict_proba(X_test_data)[:, 1]
+
+    accuracy = accuracy_score(y_test_data, y_pred)
+    roc_auc = roc_auc_score(y_test_data, y_pred_proba)
+    cm = confusion_matrix(y_test_data, y_pred)
+
+    print(f"\nAccuracy: {accuracy:.4f}")
+    print(f"ROC AUC Score: {roc_auc:.4f}")
+
+    print("\nClassification Report:")
+    print(classification_report(y_test_data, y_pred))
+
+    print("\nConfusion Matrix:")
+
+    if len(cm.ravel()) == 4:
+        tn, fp, fn, tp = cm.ravel()
+        print(f"  True Negatives (TN): {tn}")
+        print(f"  False Positives (FP): {fp}")
+        print(f"  False Negatives (FN): {fn}")
+        print(f"  True Positives (TP): {tp}")
+
+        plt.figure(figsize=(6,4))
+        sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
+                    xticklabels=model.classes_, yticklabels=model.classes_)
+        plt.xlabel('Predicted Label')
+        plt.ylabel('True Label')
+        plt.title(f'Confusion Matrix - {model_name}')
+        plt.show()
+
+        precision_class1 = precision_score(y_test_data, y_pred, pos_label=1, zero_division=0)
+        recall_class1 = recall_score(y_test_data, y_pred, pos_label=1, zero_division=0) 
+        f1_class1 = f1_score(y_test_data, y_pred, pos_label=1, zero_division=0)
+        fpr_class0 = fp / (fp + tn) if (fp + tn) > 0 else 0
+
+        print(f"\nMetrics for Positive Class (1):")
+        print(f"  Precision (Class 1): {precision_class1:.4f}")
+        print(f"  Recall (Sensitivity/TPR Class 1): {recall_class1:.4f}")
+        print(f"  F1-Score (Class 1): {f1_class1:.4f}")
+        print(f"  False Positive Rate (FPR for Class 0 behaving as positive): {fpr_class0:.4f}")
+
+    else:
+        print(cm)
 
 
-    print("--------------------Testing Performance----------------------")
-    accuracy = accuracy_score(y_test, y_pred)
-    print(accuracy_score(y_test, y_pred))
-    print(classification_report(y_test, y_pred))
+    print("-" * 50)
+    return y_pred, y_pred_proba
 
-    print("=======================================")
-    print(" \n ")
-    print("============Accuracy==========")
-    print(accuracy_score(y_test, y_pred))
+rf_model = RandomForestClassifier(n_estimators=100, random_state=42, class_weight='balanced')
+print("\nTraining RandomForest Classifier...")
+y_pred_rf, y_pred_proba_rf = evaluate_model(rf_model, X_train_scaled, X_test_scaled, y_train, y_test, model_name="RandomForest")
 
-    conf_matrix = confusion_matrix(y_test, y_pred)
-    print("============= Recall ===================")
-
-    # Calculate recall
-    TP = conf_matrix[1, 1]  # True Positives
-    FN = conf_matrix[1, 0]  # False Negatives
-    recall = TP / (TP + FN)
-
-    print(f'Recall: {recall:.5f}')
-
-    print("============= Precision ===================")
-
-    # Calculate precision
-    TP = conf_matrix[1, 1]  # True Positives
-    FP = conf_matrix[0, 1]  # False Positives
-    precision = TP / (TP + FP)
-
-    print(f'Precision: {precision:.5f}')
-
-    print("============= F1 Score ===================")
-
-    # Calculate precision and recall
-    TP = conf_matrix[1, 1]  # True Positives
-    FP = conf_matrix[0, 1]  # False Positives
-    FN = conf_matrix[1, 0]  # False Negatives
-
-    precision = TP / (TP + FP)
-    recall = TP / (TP + FN)
-
-    # Calculate F1 score
-    f1_score = 2 * (precision * recall) / (precision + recall)
-
-    print(f'F1 Score: {f1_score:.5f}')
-
-    print("============= True Positive Rate (TPR) ===================")
-
-    # Calculate True Positive Rate (TPR)
-    TPR = recall
-
-    print(f'True Positive Rate (TPR): {TPR:.5f}')
-
-    print("============= False Positive Rate (FPR) ===================")
-
-    # Calculate False Positive Rate (FPR)
-    FP = conf_matrix[0, 1]  # False Positives
-    TN = conf_matrix[0, 0]  # True Negatives
-    FPR = FP / (FP + TN)
-
-    print(f'False Positive Rate (FPR): {FPR:.5f}')
-
-    return y_pred
-
-model = RandomForestClassifier(n_estimators=100, random_state=42)
-y_pred2 = model_train(model, X_train, X_test, y_train, y_test)
-
-from lightgbm import LGBMClassifier
-hyperparameters = {
-    'learning_rate': 0.5,
-    'max_depth': 10,
-    'n_estimators': 300
+lgbm_hyperparameters = {
+    'learning_rate': 0.1, 
+    'max_depth': 7,      
+    'n_estimators': 200, 
+    'random_state': 42,
+    'class_weight': 'balanced' 
 }
+lgbm_model = LGBMClassifier(**lgbm_hyperparameters)
+print("\nTraining LightGBM Classifier...")
+y_pred_lgbm, y_pred_proba_lgbm = evaluate_model(lgbm_model, X_train_scaled, X_test_scaled, y_train, y_test, model_name="LightGBM")
 
-# Create the LGBMClassifier with specified hyperparameters
-model = LGBMClassifier(**hyperparameters)
 
-#model = LGBMClassifier()
-y_pred4 = model_train(model, X_train, X_test, y_train, y_test)
+print("\n--- Script Finished ---")
